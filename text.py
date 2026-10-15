@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import requests
 import torch.nn.functional as F
+from torchgen.api.types import longT
 
 with open("shakespeare.txt", "r", encoding="utf-8") as f:
     text = f.read()
@@ -82,23 +83,32 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size,vocab_size)
 
-    def forward(self, idx, target):
+    def forward(self, idx, target = None):
         logits = self.token_embedding_table(idx)
+        if target is None:
+            loss = None
+        else:
+            B, T, C = logits.shape
+            logits = logits.view(B * T, C)
+            target = target.view(B * T)
+            loss = F.cross_entropy(logits, target)
 
-        B, T, C = logits.shape
-        logits = logits.view(B * T, C)
-        target = target.view(B * T)
-
-        loss = F.cross_entropy(logits, target)
-
-        optimizer = torch.optim.Adam(model.parameters(),
-                                     lr=0.1)
         return logits, loss
+
+    def generate(self, idx, max_new_token):
+        for i in range(max_new_token):
+            logits, loss = self(idx)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits,dim=-1)
+
+            idx_next = torch.multinomial(probs,num_samples=1)
+            idx = torch.cat((idx, idx_next), dim=1)
+
+        return idx
 
 model = BigramLanguageModel(vocab_size)
 optimizer = torch.optim.Adam(model.parameters(),
-                                     lr=0.1)
-logits, loss = model(xb, yb)
+                                     lr=0.01)
 
 for step in range(1000):
     xb, yb = get_batch("train")
@@ -110,6 +120,22 @@ for step in range(1000):
 
     if step % 100 == 0:
         print(f"Step = {step} Loss = {loss.item():.2f}")
+
+logits, loss = model(xb, yb)
+
+context = torch.zeros((1,1), dtype= torch.long)
+
+with torch.no_grad():
+    generated_ids = model.generate(context, max_new_token=500)
+
+generated_text = ''.join(
+    int_to_char [i] for i in generated_ids[0].tolist()
+)
+
+print("\nGenerated Shakespeare Text:\n")
+print(generated_text)
+
+
 
 
 
